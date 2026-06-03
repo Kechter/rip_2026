@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Rock im Park 2026 Crew Planner – Organisiere mit deiner Gruppe, wer zu welcher Band geht.">
+  <meta name="theme-color" content="#ff4d00">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>RiP 2026 – Crew Planner</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app-container">
+
+  <!-- HEADER -->
+  <header class="header">
+    <div class="header-logo">🎸</div>
+    <h1>Rock im Park 2026</h1>
+    <p class="header-subtitle">Crew Planner</p>
+    <div class="header-meta">
+      <span>📅 5.–7. Juni</span>
+      <span>📍 Nürnberg</span>
+    </div>
+  </header>
+
+  <!-- STATUS BANNER -->
+  <div id="statusBanner" class="status-banner local hidden">
+    <span id="statusIcon">📡</span>
+    <span id="statusText"></span>
+  </div>
+
+  <!-- USER SECTION -->
+  <section class="user-section" id="userSection">
+    <h2>👤 Wer bist du?</h2>
+    <div id="userLogin" class="user-input-row">
+      <input type="text" id="userNameInput" placeholder="Dein Name eingeben..." maxlength="20" autocomplete="off">
+      <button class="btn btn-primary" id="userLoginBtn" onclick="loginUser()">Los!</button>
+    </div>
+    <div id="userLoggedIn" class="user-logged-in hidden">
+      <div class="user-info">
+        <div class="user-avatar" id="userAvatar"></div>
+        <span class="user-name" id="userName"></span>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <div class="user-list-mini" id="userListMini"></div>
+        <button class="btn btn-secondary btn-small" onclick="logoutUser()">Wechseln</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- DAY TABS -->
+  <nav class="day-tabs" id="dayTabs">
+    <button class="day-tab active" data-day="friday" onclick="switchDay('friday')">
+      Freitag<span class="tab-date">5. Juni</span>
+    </button>
+    <button class="day-tab" data-day="saturday" onclick="switchDay('saturday')">
+      Samstag<span class="tab-date">6. Juni</span>
+    </button>
+    <button class="day-tab" data-day="sunday" onclick="switchDay('sunday')">
+      Sonntag<span class="tab-date">7. Juni</span>
+    </button>
+  </nav>
+
+  <!-- VIEW CONTROLS -->
+  <div class="view-controls">
+    <div class="view-toggle">
+      <button class="view-btn active" data-view="timeline" onclick="switchView('timeline')">⏱ Zeitplan</button>
+      <button class="view-btn" data-view="stages" onclick="switchView('stages')">🎤 Bühnen</button>
+    </div>
+    <div class="filter-group">
+      <label><input type="checkbox" id="filterVoted" onchange="renderBands()"> Nur meine</label>
+    </div>
+  </div>
+
+  <!-- SEARCH -->
+  <input type="text" class="search-box" id="searchBox" placeholder="🔍 Band suchen..." oninput="renderBands()">
+
+  <!-- BAND LIST -->
+  <main id="bandContainer"></main>
+
+  <!-- GROUP OVERVIEW -->
+  <h2 class="section-title" id="overviewTitle">Gruppen-Übersicht</h2>
+  <div class="overview-table-wrapper" id="overviewWrapper">
+    <table class="overview-table" id="overviewTable"></table>
+  </div>
+
+  <!-- TOGETHER SECTION -->
+  <h2 class="section-title" id="togetherTitle">🤝 Zusammen unterwegs</h2>
+  <div id="togetherContainer" class="together-section"></div>
+
+</div>
+
+<script src="config.js"></script>
+<script src="data.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.11.0/dist/umd/supabase.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
