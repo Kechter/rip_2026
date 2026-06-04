@@ -11,6 +11,7 @@ let currentView = 'timeline';
 let supabaseClient = null;
 let isOnline = navigator.onLine;
 let realtimeChannel = null;
+let liveInterval = null;
 
 // --- Init ---
 document.addEventListener('DOMContentLoaded', () => {
@@ -18,6 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadLocalState();
   registerSW();
   setupOnlineListeners();
+  initSettings();
   renderAll();
   document.getElementById('userNameInput').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') loginUser();
@@ -33,9 +35,217 @@ document.addEventListener('DOMContentLoaded', () => {
     const card = e.target.closest('.band-card');
     if (card && currentUser) {
       toggleVote(card.dataset.band, card.dataset.day);
+      return;
+    }
+    // Also delegate click for Grid acts
+    const gridCard = e.target.closest('.grid-act-card');
+    if (gridCard && currentUser) {
+      toggleVote(gridCard.dataset.band, gridCard.dataset.day);
+      return;
+    }
+    // Also delegate click for Agenda items
+    const agendaItem = e.target.closest('.agenda-item');
+    if (agendaItem && currentUser) {
+      toggleVote(agendaItem.dataset.band, agendaItem.dataset.day);
+      return;
+    }
+    // Also delegate click for My Plan cards
+    const myplanCard = e.target.closest('.myplan-card');
+    if (myplanCard && currentUser) {
+      toggleVote(myplanCard.dataset.band, myplanCard.dataset.day);
+      return;
     }
   });
+
+  // Start a clock tick to refresh views (like the red Grid Live line)
+  liveInterval = setInterval(() => {
+    if (currentView === 'grid') {
+      renderBands();
+    }
+  }, 60000);
 });
+
+// --- Settings Management ---
+function initSettings() {
+  // Render color picker palette
+  const palette = document.getElementById('colorPalette');
+  if (palette) {
+    palette.innerHTML = FESTIVAL_DATA.userColors.map(color => `
+      <div class="color-dot" style="background:${color}" onclick="changeUserColor('${color}')" data-color="${color}"></div>
+    `).join('');
+  }
+
+  // Load compact mode preference
+  const isCompact = loadLocal('rip_compact_mode') || false;
+  document.getElementById('compactModeCheckbox').checked = isCompact;
+  toggleCompactMode(isCompact);
+}
+
+function getShortName(userName) {
+  if (!userName) return "";
+  const name = userName.trim();
+  
+  // Find all user names in memory
+  const names = allUsers.map(u => u.name.trim());
+  const conflicts = names.filter(n => n.toLowerCase() !== name.toLowerCase() && n.charAt(0).toLowerCase() === name.charAt(0).toLowerCase());
+  
+  if (conflicts.length === 0) {
+    return name.charAt(0).toUpperCase();
+  }
+  
+  // Check if first two characters match
+  const twoCharConflicts = conflicts.filter(n => n.substring(0, 2).toLowerCase() === name.substring(0, 2).toLowerCase());
+  if (twoCharConflicts.length === 0) {
+    return name.substring(0, 2).toUpperCase().charAt(0) + name.substring(0, 2).toLowerCase().charAt(1);
+  }
+  
+  // Fallback to 3 characters
+  return name.substring(0, 3).toUpperCase().charAt(0) + name.substring(0, 3).toLowerCase().substring(1, 3);
+}
+
+function toggleSettings(open) {
+  const drawer = document.getElementById('settingsDrawer');
+  if (open) {
+    drawer.classList.remove('hidden');
+    
+    // Populate current name input
+    if (currentUser) {
+      document.getElementById('renameInput').value = currentUser.name;
+    }
+    
+    // Highlight current active color
+    if (currentUser) {
+      document.querySelectorAll('.color-dot').forEach(dot => {
+        dot.classList.toggle('active', dot.dataset.color.toLowerCase() === currentUser.color.toLowerCase());
+        dot.textContent = dot.dataset.color.toLowerCase() === currentUser.color.toLowerCase() ? '✓' : '';
+      });
+    }
+
+    renderSettingsUserList();
+  } else {
+    drawer.classList.add('hidden');
+  }
+}
+
+// Render list of users in settings panel for management
+function renderSettingsUserList() {
+  const container = document.getElementById('settingsUserList');
+  if (!container) return;
+
+  if (allUsers.length <= 1) {
+    container.innerHTML = `<div class="empty-state" style="padding:10px 0;">Keine anderen Crew-Mitglieder registriert.</div>`;
+    return;
+  }
+
+  container.innerHTML = allUsers
+    .filter(u => !currentUser || u.id !== currentUser.id)
+    .map(u => `
+      <div class="settings-user-row">
+        <div class="settings-user-info">
+          <div class="settings-user-avatar" style="background:${u.color}">${getShortName(u.name)}</div>
+          <span>${escHtml(u.name)}</span>
+        </div>
+        <button class="settings-delete-btn" onclick="deleteUser('${u.id}')" title="User löschen">🗑️</button>
+      </div>
+    `).join('');
+}
+
+// Rename the current user
+async function renameCurrentUser() {
+  const input = document.getElementById('renameInput');
+  const newName = input.value.trim();
+  if (!newName || !currentUser) return;
+
+  const oldName = currentUser.name;
+  currentUser.name = newName;
+
+  // Save locally
+  const uIdx = allUsers.findIndex(u => u.id === currentUser.id);
+  if (uIdx !== -1) {
+    allUsers[uIdx].name = newName;
+    saveLocal('rip_users', allUsers);
+  }
+
+  // Update Supabase
+  if (supabaseClient) {
+    try {
+      await supabaseClient.from('users').update({ name: newName }).eq('id', currentUser.id);
+    } catch (e) {
+      console.error('Failed to rename user on Supabase:', e);
+    }
+  }
+
+  renderAll();
+  renderSettingsUserList();
+  showStatus('online', `Namensänderung gespeichert: ${newName}`);
+}
+
+// Delete user from local/remote DB
+async function deleteUser(userId) {
+  if (!confirm("Möchtest du dieses Crew-Mitglied wirklich löschen? Alle Votes dieser Person gehen verloren.")) return;
+
+  // Filter local state
+  allUsers = allUsers.filter(u => u.id !== userId);
+  allVotes = allVotes.filter(v => v.user_id !== userId);
+  
+  saveLocal('rip_users', allUsers);
+  saveLocal('rip_votes', allVotes);
+
+  // Remove from Supabase
+  if (supabaseClient) {
+    try {
+      await Promise.all([
+        supabaseClient.from('users').delete().eq('id', userId),
+        supabaseClient.from('votes').delete().eq('user_id', userId)
+      ]);
+    } catch (e) {
+      console.error('Failed to delete user from Supabase:', e);
+    }
+  }
+
+  renderAll();
+  renderSettingsUserList();
+}
+
+async function changeUserColor(color) {
+  if (!currentUser) return;
+  currentUser.color = color;
+  
+  // Highlight active
+  document.querySelectorAll('.color-dot').forEach(dot => {
+    dot.classList.toggle('active', dot.dataset.color === color);
+    dot.textContent = dot.dataset.color === color ? '✓' : '';
+  });
+
+  // Save locally
+  const uIdx = allUsers.findIndex(u => u.id === currentUser.id);
+  if (uIdx !== -1) {
+    allUsers[uIdx].color = color;
+    saveLocal('rip_users', allUsers);
+  }
+
+  // Update Supabase
+  if (supabaseClient) {
+    try {
+      await supabaseClient.from('users').update({ color: color }).eq('id', currentUser.id);
+    } catch (e) {
+      console.error('Failed to update color on Supabase:', e);
+    }
+  }
+
+  renderAll();
+}
+
+function toggleCompactMode(enable) {
+  if (enable) {
+    document.body.classList.add('compact-mode');
+  } else {
+    document.body.classList.remove('compact-mode');
+  }
+  saveLocal('rip_compact_mode', enable);
+}
+
+
 
 // --- Service Worker ---
 function registerSW() {
@@ -98,6 +308,9 @@ function subscribeRealtime() {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, () => fetchAllData())
     .on('postgres_changes', { event: '*', schema: 'public', table: 'votes' }, () => fetchAllData())
     .subscribe();
+  
+  // Initialize checkin broadcast channel
+  subscribeCheckinBroadcast();
 }
 
 async function syncOfflineVotes() {
@@ -309,19 +522,21 @@ function renderUserSection() {
 
     const avatar = document.getElementById('userAvatar');
     avatar.style.backgroundColor = currentUser.color;
-    avatar.textContent = currentUser.name.charAt(0).toUpperCase();
+    avatar.textContent = getShortName(currentUser.name);
     document.getElementById('userName').textContent = currentUser.name;
 
     // Mini avatars of other users
     const miniContainer = document.getElementById('userListMini');
-    miniContainer.innerHTML = allUsers
-      .filter(u => u.id !== currentUser.id)
-      .map(u => `
-        <div class="mini-avatar" style="background:${u.color}">
-          ${u.name.charAt(0).toUpperCase()}
-          <span class="tooltip">${u.name}</span>
-        </div>
-      `).join('');
+    if (miniContainer) {
+      miniContainer.innerHTML = allUsers
+        .filter(u => u.id !== currentUser.id)
+        .map(u => `
+          <div class="mini-avatar" style="background:${u.color}">
+            ${getShortName(u.name)}
+            <span class="tooltip">${u.name}</span>
+          </div>
+        `).join('');
+    }
   } else {
     login.classList.remove('hidden');
     loggedIn.classList.add('hidden');
@@ -346,6 +561,11 @@ function switchView(view) {
   renderBands();
 }
 
+
+
+// --- Additional state for Grid check-in ---
+let activeCheckins = {}; // { user_id: { band_name, day } }
+
 function renderBands() {
   const container = document.getElementById('bandContainer');
   const dayData = FESTIVAL_DATA.days.find(d => d.id === currentDay);
@@ -363,16 +583,205 @@ function renderBands() {
     acts = acts.filter(a => myBands.has(a.band));
   }
 
-  if (currentView === 'timeline') {
-    renderTimeline(container, acts, dayData.id);
-  } else {
-    renderStages(container, acts, dayData.id);
+  const searchBox = document.getElementById('searchBox');
+  searchBox.classList.remove('hidden');
+
+  switch(currentView) {
+    case 'timeline':
+      renderTimeline(container, acts, dayData.id);
+      break;
+    case 'stages':
+      renderStages(container, acts, dayData.id);
+      break;
+    case 'grid':
+      renderGrid(container, acts, dayData.id);
+      break;
   }
 }
 
+// --- Check-in Handler ---
+function toggleCheckin(bandName, dayId, event) {
+  if (event) event.stopPropagation();
+  if (!currentUser) return;
+
+  const currentCheck = activeCheckins[currentUser.id];
+  if (currentCheck && currentCheck.band_name === bandName && currentCheck.day === dayId) {
+    // Check out
+    delete activeCheckins[currentUser.id];
+  } else {
+    // Check in
+    activeCheckins[currentUser.id] = { band_name: bandName, day: dayId };
+  }
+
+  // Push checkins to localStorage
+  saveLocal('rip_active_checkins', activeCheckins);
+
+  // Sync to other users if online
+  if (supabaseClient) {
+    // For now we simulate with localStorage. For true Supabase sync we could use broadcast channels
+    if (realtimeChannel) {
+      realtimeChannel.send({
+        type: 'broadcast',
+        event: 'checkin',
+        payload: { user_id: currentUser.id, checkin: activeCheckins[currentUser.id] }
+      });
+    }
+  }
+
+  renderBands();
+}
+
+// Subscribe to checkin broadcast
+function subscribeCheckinBroadcast() {
+  if (!supabaseClient || !realtimeChannel) return;
+  realtimeChannel.on('broadcast', { event: 'checkin' }, ({ payload }) => {
+    if (payload.checkin) {
+      activeCheckins[payload.user_id] = payload.checkin;
+    } else {
+      delete activeCheckins[payload.user_id];
+    }
+    renderBands();
+  });
+}
+
+// --- View Helpers ---
+
+// 1. Grid (Clashfinder) View Helper
+function renderGrid(container, acts, dayId) {
+  const stages = ['Utopia', 'Mandora', 'Orbit'];
+  
+  // Math parameters
+  const startHour = 12; // 12:00
+  const endHour = 27;   // 03:00 next day
+  const totalMinutes = (endHour - startHour) * 60;
+  const pixelsPerMinute = 1.25; // 1.25px per minute height
+
+  // Time conversion helper
+  const timeToMinutes = (timeStr) => {
+    const [h, m] = timeStr.split(':').map(Number);
+    let mins = h * 60 + m;
+    if (h < startHour) mins += 24 * 60;
+    return mins - startHour * 60;
+  };
+
+  // 1. Render Current Time Line
+  let liveLineHtml = '';
+  const now = new Date();
+  const currentHours = now.getHours();
+  const currentMins = now.getMinutes();
+  const currentVal = (currentHours < startHour ? currentHours + 24 : currentHours) * 60 + currentMins;
+  const startVal = startHour * 60;
+  const endVal = endHour * 60;
+  
+  if (currentVal >= startVal && currentVal < endVal) {
+    const relativeMins = currentVal - startVal;
+    const topPos = relativeMins * pixelsPerMinute;
+    liveLineHtml = `<div class="grid-live-line" style="top: ${topPos}px"></div>`;
+  }
+
+  // Load checkins
+  const savedCheckins = loadLocal('rip_active_checkins');
+  if (savedCheckins) activeCheckins = savedCheckins;
+
+  // Generate vertical grid labels
+  let timeLabelsHtml = '';
+  for (let h = startHour; h <= endHour; h++) {
+    const displayHour = h >= 24 ? h - 24 : h;
+    const padHour = String(displayHour).padStart(2, '0') + ':00';
+    const topPos = (h - startHour) * 60 * pixelsPerMinute;
+    timeLabelsHtml += `<div class="grid-time-label" style="top: ${topPos}px">${padHour}</div>`;
+  }
+
+  // Render headers
+  let headersHtml = '<div class="grid-header-cell time-header">Zeit</div>';
+  stages.forEach(stage => {
+    headersHtml += `<div class="grid-header-cell">${stage}</div>`;
+  });
+
+  // Render columns content
+  let columnsHtml = `<div class="grid-timeline-col" style="height: ${totalMinutes * pixelsPerMinute}px">${timeLabelsHtml}${liveLineHtml}</div>`;
+  
+  stages.forEach(stage => {
+    const stageActs = acts.filter(a => a.stage === stage);
+    let cardsHtml = '';
+    
+    stageActs.forEach(act => {
+      const startMin = timeToMinutes(act.start);
+      const endMin = timeToMinutes(act.end);
+      const height = (endMin - startMin) * pixelsPerMinute;
+      const top = startMin * pixelsPerMinute;
+      
+      const bandVotes = allVotes.filter(v => v.band_name === act.band);
+      const myVote = currentUser ? bandVotes.find(v => v.user_id === currentUser.id) : null;
+      const votePriority = myVote ? myVote.priority : 0;
+      const voteClass = votePriority === 1 ? 'voted-1' : votePriority === 2 ? 'voted-2' : '';
+      
+      // Voter Dots
+      const voterDots = bandVotes.map(v => {
+        const user = allUsers.find(u => u.id === v.user_id);
+        if (!user) return '';
+        
+        // Check if this voter is checked-in at this stage right now
+        const isCheckedIn = activeCheckins[v.user_id] && 
+                            activeCheckins[v.user_id].band_name === act.band && 
+                            activeCheckins[v.user_id].day === dayId;
+        const checkinClass = isCheckedIn ? 'checked-in-user' : '';
+        const checkinSymbol = isCheckedIn ? '📍' : '';
+        
+        return `<div class="grid-voter-dot ${checkinClass}" style="background:${user.color}" title="${user.name} ${checkinSymbol ? '(Vor Ort)' : ''}">${getShortName(user.name)}</div>`;
+      }).join('');
+      
+      const bandAttr = act.band.replace(/"/g, '&quot;');
+      
+      // Checkin button for currentUser if this act is favorited
+      let checkinBtnHtml = '';
+      if (currentUser && myVote) {
+        const isCheckedIn = activeCheckins[currentUser.id] && 
+                            activeCheckins[currentUser.id].band_name === act.band && 
+                            activeCheckins[currentUser.id].day === dayId;
+        const btnClass = isCheckedIn ? 'checked-in' : '';
+        const btnLabel = isCheckedIn ? '📍 Da!' : '📍 Hier?';
+        checkinBtnHtml = `<button class="grid-checkin-btn ${btnClass}" onclick="toggleCheckin('${bandAttr}', '${dayId}', event)">${btnLabel}</button>`;
+      }
+      
+      cardsHtml += `
+        <div class="grid-act-card ${voteClass}" style="top: ${top}px; height: ${height}px;" data-band="${bandAttr}" data-day="${dayId}">
+          <div>
+            <div class="grid-act-name">${escHtml(act.band)}</div>
+            <div class="grid-act-time">${act.start}–${act.end}</div>
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:flex-end;">
+            ${checkinBtnHtml}
+            <div class="grid-act-voters">${voterDots}</div>
+          </div>
+        </div>
+      `;
+    });
+    
+    columnsHtml += `<div class="grid-stage-col" style="height: ${totalMinutes * pixelsPerMinute}px">${cardsHtml}</div>`;
+  });
+
+  container.innerHTML = `
+    <div class="grid-container">
+      ${headersHtml}
+      ${columnsHtml}
+    </div>
+  `;
+}
+
+
+
 function renderTimeline(container, acts, dayId) {
-  // Sort by start time
-  const sorted = [...acts].sort((a, b) => a.start.localeCompare(b.start));
+  // Sort by start time, taking night/early morning slots (before 05:00) into account
+  const compareTime = (tA, tB) => {
+    const parse = (tStr) => {
+      const [h, m] = tStr.split(':').map(Number);
+      return (h < 5 ? h + 24 : h) * 60 + m;
+    };
+    return parse(tA.start) - parse(tB.start);
+  };
+  
+  const sorted = [...acts].sort(compareTime);
   container.innerHTML = `<div class="band-list">${sorted.map(act =>
     renderBandCard(act, dayId, true)
   ).join('')}</div>`;
@@ -380,9 +789,18 @@ function renderTimeline(container, acts, dayId) {
 
 function renderStages(container, acts, dayId) {
   const stages = ['Utopia', 'Mandora', 'Orbit'];
+  
+  const compareTime = (tA, tB) => {
+    const parse = (tStr) => {
+      const [h, m] = tStr.split(':').map(Number);
+      return (h < 5 ? h + 24 : h) * 60 + m;
+    };
+    return parse(tA.start) - parse(tB.start);
+  };
+
   container.innerHTML = stages.map(stage => {
     const stageActs = acts.filter(a => a.stage === stage)
-      .sort((a, b) => a.start.localeCompare(b.start));
+      .sort(compareTime);
     if (stageActs.length === 0) return '';
     return `
       <div class="stage-group">
@@ -412,7 +830,7 @@ function renderBandCard(act, dayId, showStage) {
     const user = allUsers.find(u => u.id === v.user_id);
     if (!user) return '';
     const mustClass = v.priority === 2 ? 'must' : '';
-    return `<div class="band-voter-dot ${mustClass}" style="background:${user.color}" title="${user.name}">${user.name.charAt(0).toUpperCase()}</div>`;
+    return `<div class="band-voter-dot ${mustClass}" style="background:${user.color}" title="${user.name}">${getShortName(user.name)}</div>`;
   }).join('');
 
   const bandAttr = act.band.replace(/"/g, '&quot;');
@@ -526,7 +944,7 @@ function renderTogether() {
       <div class="together-header">
         <div class="together-users">
           ${g.users.map(u =>
-            `<div class="mini-avatar" style="background:${u.color}">${u.name.charAt(0).toUpperCase()}</div>`
+            `<div class="mini-avatar" style="background:${u.color}">${getShortName(u.name)}</div>`
           ).join('')}
         </div>
         <span style="font-size:0.8rem;color:var(--text-secondary)">

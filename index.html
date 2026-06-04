@@ -44,12 +44,47 @@
         <div class="user-avatar" id="userAvatar"></div>
         <span class="user-name" id="userName"></span>
       </div>
-      <div style="display:flex;gap:6px;align-items:center;">
+      <div class="user-actions">
         <div class="user-list-mini" id="userListMini"></div>
         <button class="btn btn-secondary btn-small" onclick="logoutUser()">Wechseln</button>
+        <button class="btn btn-secondary btn-icon-only btn-small" onclick="toggleSettings(true)" title="Einstellungen">⚙️</button>
       </div>
     </div>
   </section>
+
+  <!-- SETTINGS DRAWER -->
+  <div id="settingsDrawer" class="settings-drawer hidden">
+    <div class="settings-drawer-backdrop" onclick="toggleSettings(false)"></div>
+    <div class="settings-drawer-content">
+      <div class="settings-header">
+        <h3>⚙️ Einstellungen</h3>
+        <button class="settings-close-btn" onclick="toggleSettings(false)">×</button>
+      </div>
+      <div class="settings-body">
+        <div class="settings-group">
+          <label class="settings-label" for="renameInput">Dein Name ändern</label>
+          <div class="user-input-row">
+            <input type="text" id="renameInput" placeholder="Neuer Name..." maxlength="20" autocomplete="off">
+            <button class="btn btn-primary btn-small" onclick="renameCurrentUser()">Speichern</button>
+          </div>
+        </div>
+        <div class="settings-group">
+          <label class="settings-label">Eigene Farbe wählen</label>
+          <div class="color-palette" id="colorPalette"></div>
+        </div>
+        <div class="settings-group">
+          <label class="compact-mode-switch">
+            <input type="checkbox" id="compactModeCheckbox" onchange="toggleCompactMode(this.checked)">
+            <span>Kompakte Ansicht aktivieren</span>
+          </label>
+        </div>
+        <div class="settings-group" style="margin-top: 10px; border-top: 1px solid var(--border-glass); padding-top: 16px;">
+          <label class="settings-label">Crew verwalten (Löschen)</label>
+          <div id="settingsUserList" class="settings-user-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- DAY TABS -->
   <nav class="day-tabs" id="dayTabs">
@@ -66,9 +101,12 @@
 
   <!-- VIEW CONTROLS -->
   <div class="view-controls">
-    <div class="view-toggle">
-      <button class="view-btn active" data-view="timeline" onclick="switchView('timeline')">⏱ Zeitplan</button>
-      <button class="view-btn" data-view="stages" onclick="switchView('stages')">🎤 Bühnen</button>
+    <div class="view-toggle-scroll">
+      <div class="view-toggle">
+        <button class="view-btn" data-view="timeline" onclick="switchView('timeline')">⏱ Zeitplan</button>
+        <button class="view-btn" data-view="stages" onclick="switchView('stages')">🎤 Bühnen</button>
+        <button class="view-btn active" data-view="grid" onclick="switchView('grid')">📊 Grid</button>
+      </div>
     </div>
     <div class="filter-group">
       <label><input type="checkbox" id="filterVoted" onchange="renderBands()"> Nur meine</label>
@@ -78,7 +116,7 @@
   <!-- SEARCH -->
   <input type="text" class="search-box" id="searchBox" placeholder="🔍 Band suchen..." oninput="renderBands()">
 
-  <!-- BAND LIST -->
+  <!-- BAND LIST / RENDER CONTAINER -->
   <main id="bandContainer"></main>
 
   <!-- GROUP OVERVIEW -->
