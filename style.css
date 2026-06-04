@@ -1256,4 +1256,31 @@ body.compact-mode .stage-group {
   transform: scale(1.15);
 }
 
+/* ===== SEARCH BOX STYLE ===== */
+.search-box {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.95rem;
+  outline: none;
+  transition: all var(--transition);
+  margin-bottom: 16px;
+  backdrop-filter: blur(8px);
+}
+
+.search-box:focus {
+  border-color: var(--accent-orange);
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 16px rgba(255, 77, 0, 0.15);
+}
+
+.search-box::placeholder {
+  color: var(--text-muted);
+}
+
+
 
